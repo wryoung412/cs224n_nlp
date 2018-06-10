@@ -232,7 +232,6 @@ def skipgram(currentWord, C, contextWords, tokens, inputVectors, outputVectors,
     cost /= len(contextWords)
     gradIn /= len(contextWords)
     gradOut /= len(contextWords)
-    
     ### END YOUR CODE
 
     return cost, gradIn, gradOut
