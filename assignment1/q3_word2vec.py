@@ -142,6 +142,7 @@ def negSamplingCostAndGradient(predicted, target, outputVectors, dataset,
         grad[indices[i]] += grad_sample[i]
     ### END YOUR CODE
 
+    # TODO: this implementation of grad is not sparse.
     return cost, gradPred, grad
 
 def negSamplingCostAndGradient2(predicted, target, outputVectors, dataset,
