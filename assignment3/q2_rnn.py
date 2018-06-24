@@ -34,6 +34,9 @@ class Config:
     information parameters. Model objects are passed a Config() object at
     instantiation.
     """
+    # The first feature is the id.
+    # The second feature is the casing id.
+    # The two ids are in the same space. 
     n_word_features = 2 # Number of features for every word in the input.
     window_size = 1
     n_features = (2 * window_size + 1) * n_word_features # Number of features for every word in the input.
@@ -103,7 +106,16 @@ def pad_sequences(data, max_length):
 
     for sentence, labels in data:
         ### YOUR CODE HERE (~4-6 lines)
-        pass
+        L = len(labels)
+        mask = [True] * L
+        # L - max_length could be negative. 
+        # [False] * (-3) = []
+        if L <  max_length:
+            delta = max_length - L
+            sentence.extend([zero_vector] * delta)
+            labels.extend([zero_label] * delta)
+            mask.extend([False] * delta)
+        ret.append([sentence[:max_length], labels[:max_length], mask[:max_length]])
         ### END YOUR CODE ###
     return ret
 
@@ -141,6 +153,10 @@ class RNNModel(NERModel):
         (Don't change the variable names)
         """
         ### YOUR CODE HERE (~4-6 lines)
+        self.input_placeholder = tf.placeholder(tf.int32, [None, self.max_length, Config.n_features])
+        self.labels_placeholder = tf.placeholder(tf.int32, [None, self.max_length])
+        self.mask_placeholder = tf.placeholder(tf.bool, [None, self.max_length])
+        self.dropout_placeholder = tf.placeholder(tf.float32, None)
         ### END YOUR CODE
 
     def create_feed_dict(self, inputs_batch, mask_batch, labels_batch=None, dropout=1):
@@ -189,7 +205,19 @@ class RNNModel(NERModel):
         Returns:
             embeddings: tf.Tensor of shape (None, max_length, n_features*embed_size)
         """
+        # input_placeholder: [B, L, N]
+        # tf.one_hot(input): [B, L, N, V]
+        # word_vectors: [V, E]
+        # one_hot * word_vectors: [B, L, N, E]
+        # reshaped embeddings: [B, L, N * E]
+        V = len(self.pretrained_embeddings)
+        
         ### YOUR CODE HERE (~4-6 lines)
+        word_vectors = tf.Variable(self.pretrained_embeddings)
+        embeddings = tf.reshape(tf.tensordot(tf.one_hot(self.input_placeholder, V),
+                                             word_vectors,
+                                             axes = [[3], [0]]),
+                                [-1, self.max_length, Config.n_features * self.config.embed_size])
         ### END YOUR CODE
         return embeddings
 
@@ -249,18 +277,33 @@ class RNNModel(NERModel):
             raise ValueError("Unsuppported cell type: " + self.config.cell)
 
         # Define U and b2 as variables.
-        # Initialize state as vector of zeros.
+        # Initialize state h as vector of zeros.
         ### YOUR CODE HERE (~4-6 lines)
+        # TODO: is the dimension of U correct for GRU?
+        U = tf.get_variable('U', shape=(self.config.hidden_size, self.config.n_classes), dtype=tf.float32,
+                            initializer=tf.contrib.layers.xavier_initializer())
+        b2 = tf.get_variable('b2', shape=(1, self.config.n_classes), dtype=tf.float32,
+                             initializer=tf.constant_initializer(0))
+        h_t = tf.get_variable('h', shape=(1, self.config.hidden_size), dtype=tf.float32,
+                          initializer=tf.constant_initializer(0))
         ### END YOUR CODE
 
         with tf.variable_scope("RNN"):
             for time_step in range(self.max_length):
                 ### YOUR CODE HERE (~6-10 lines)
-                pass
+                # No sequeeze is needed for x[:, time_step, :]
+                o_t, h_t = cell(x[:, time_step, :], h_t, self.config.cell)
+                # TODO: is this the right place for setting reuse?
+                tf.get_variable_scope().reuse_variables()
+                o_drop_t = tf.layers.dropout(o_t, self.dropout_placeholder)
+                y_t = tf.matmul(o_drop_t, U) + b2
+                preds.append(y_t)
                 ### END YOUR CODE
 
         # Make sure to reshape @preds here.
         ### YOUR CODE HERE (~2-4 lines)
+        # This is an unusual stack, along the sentence dimension.
+        preds = tf.stack(preds, 1)
         ### END YOUR CODE
 
         assert preds.get_shape().as_list() == [None, self.max_length, self.config.n_classes], "predictions are not of the right shape. Expected {}, got {}".format([None, self.max_length, self.config.n_classes], preds.get_shape().as_list())
