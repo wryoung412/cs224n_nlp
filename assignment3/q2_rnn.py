@@ -299,9 +299,9 @@ class RNNModel(NERModel):
                              initializer=tf.constant_initializer(0))
         # Note
         # 1. h_t is not a variable, just a constant tensor!
-        # 2. h_t should have the batch dimension.
-        h_t = tf.get_variable('h', shape=(1, self.config.hidden_size), dtype=tf.float32,
-                          initializer=tf.constant_initializer(0))
+        # 2. h_t should have the batch dimension. tf.shape(x)[0] should be just batch_size.
+        h_t = tf.zeros(shape=(tf.shape(x)[0], self.config.hidden_size), dtype=tf.float32)
+
         ### END YOUR CODE
 
         with tf.variable_scope("RNN"):
@@ -373,8 +373,8 @@ class RNNModel(NERModel):
             train_op: The Op for training.
         """
         ### YOUR CODE HERE (~1-2 lines)
-        # TODO(wrui): make the learning rate configurable.
-        train_op = tf.train.AdamOptimizer(1e-4).minimize(loss)
+        # Learning rate 1e-4 is too small.
+        train_op = tf.train.AdamOptimizer(self.config.lr).minimize(loss)
         ### END YOUR CODE
         return train_op
 
