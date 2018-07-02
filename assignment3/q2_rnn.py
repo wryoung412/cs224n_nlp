@@ -106,16 +106,19 @@ def pad_sequences(data, max_length):
 
     for sentence, labels in data:
         ### YOUR CODE HERE (~4-6 lines)
+        # This function is tricky as the raw data would be referred later. 
+        # 1. Need to truncate the raw data.
+        # 2. Should not pad the raw data. 
+        if len(labels) > max_length:
+            sentences = sentences[:max_length]
+            labels = labels[:max_length]
+
         L = len(labels)
-        mask = [True] * L
-        # L - max_length could be negative. 
-        # [False] * (-3) = []
-        if L <  max_length:
-            delta = max_length - L
-            sentence.extend([zero_vector] * delta)
-            labels.extend([zero_label] * delta)
-            mask.extend([False] * delta)
-        ret.append([sentence[:max_length], labels[:max_length], mask[:max_length]])
+        delta = max_length - L
+        filled_sentence = sentence + [zero_vector] * delta
+        filled_labels = labels + [zero_label] * delta
+        mask = [True] * L + [False] * delta
+        ret.append([filled_sentence, filled_labels, mask])
         ### END YOUR CODE ###
     return ret
 
@@ -182,6 +185,14 @@ class RNNModel(NERModel):
             feed_dict: The feed dictionary mapping from placeholders to values.
         """
         ### YOUR CODE (~6-10 lines)
+        # Look at the hint. When an argument is None, don't add it to the feed_dict.
+        feed_dict = {
+            self.input_placeholder: inputs_batch,
+            self.mask_placeholder: mask_batch,
+            self.dropout_placeholder: dropout
+        }
+        if labels_batch is not None:
+            feed_dict[self.labels_placeholder] = labels_batch
         ### END YOUR CODE
         return feed_dict
 
@@ -214,9 +225,11 @@ class RNNModel(NERModel):
         
         ### YOUR CODE HERE (~4-6 lines)
         word_vectors = tf.Variable(self.pretrained_embeddings)
-        embeddings = tf.reshape(tf.tensordot(tf.one_hot(self.input_placeholder, V),
-                                             word_vectors,
-                                             axes = [[3], [0]]),
+        # embedding lookup is significantly faster than tensordot
+        embeddings = tf.nn.embedding_lookup(word_vectors, self.input_placeholder)
+        # embeddings = tf.tensordot(tf.one_hot(self.input_placeholder, V),
+        #                                      word_vectors, axes = [[3], [0]])
+        embeddings = tf.reshape(embeddings,
                                 [-1, self.max_length, Config.n_features * self.config.embed_size])
         ### END YOUR CODE
         return embeddings
@@ -284,6 +297,9 @@ class RNNModel(NERModel):
                             initializer=tf.contrib.layers.xavier_initializer())
         b2 = tf.get_variable('b2', shape=(1, self.config.n_classes), dtype=tf.float32,
                              initializer=tf.constant_initializer(0))
+        # Note
+        # 1. h_t is not a variable, just a constant tensor!
+        # 2. h_t should have the batch dimension.
         h_t = tf.get_variable('h', shape=(1, self.config.hidden_size), dtype=tf.float32,
                           initializer=tf.constant_initializer(0))
         ### END YOUR CODE
@@ -293,7 +309,6 @@ class RNNModel(NERModel):
                 ### YOUR CODE HERE (~6-10 lines)
                 # No sequeeze is needed for x[:, time_step, :]
                 o_t, h_t = cell(x[:, time_step, :], h_t, self.config.cell)
-                # TODO: is this the right place for setting reuse?
                 tf.get_variable_scope().reuse_variables()
                 o_drop_t = tf.layers.dropout(o_t, self.dropout_placeholder)
                 y_t = tf.matmul(o_drop_t, U) + b2
@@ -325,6 +340,16 @@ class RNNModel(NERModel):
             loss: A 0-d tensor (scalar)
         """
         ### YOUR CODE HERE (~2-4 lines)
+        # TODO: what does this function do?
+        # Surprisingly it works for batches. 
+        masked_labels = tf.boolean_mask(self.labels_placeholder, self.mask_placeholder)
+        masked_preds = tf.boolean_mask(preds, self.mask_placeholder)
+        # Need to use reduce_mean after the cross entropy loss
+        # loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+        #     labels=tf.one_hot(self.labels_placeholder, self.config.n_classes),
+        #     logits=preds))
+        loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=masked_labels, logits=masked_preds))
         ### END YOUR CODE
         return loss
 
@@ -348,6 +373,8 @@ class RNNModel(NERModel):
             train_op: The Op for training.
         """
         ### YOUR CODE HERE (~1-2 lines)
+        # TODO(wrui): make the learning rate configurable.
+        train_op = tf.train.AdamOptimizer(1e-4).minimize(loss)
         ### END YOUR CODE
         return train_op
 
@@ -433,6 +460,7 @@ def do_test2(args):
     logger.info("Testing implementation of RNNModel")
     config = Config(args)
     helper, train, dev, train_raw, dev_raw = load_and_preprocess_data(args)
+    
     embeddings = load_embeddings(args, helper)
     config.embed_size = embeddings.shape[1]
 
